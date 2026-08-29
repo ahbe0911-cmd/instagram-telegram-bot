@@ -16,6 +16,10 @@ def test_settings_load_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "MAX_REQUESTS_PER_MINUTE",
         "MAX_UPLOAD_MB",
         "LOG_LEVEL",
+        "INSTAGRAM_USERNAME",
+        "INSTAGRAM_SESSIONID",
+        "INSTAGRAM_CSRFTOKEN",
+        "INSTAGRAM_DS_USER_ID",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -25,6 +29,23 @@ def test_settings_load_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.max_concurrent_downloads == 2
     assert settings.max_requests_per_minute == 4
     assert settings.max_upload_mb == 49
+    assert settings.story_session_configured is False
+
+
+def test_story_session_settings_are_optional(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("INSTAGRAM_USERNAME", "owner")
+    monkeypatch.setenv("INSTAGRAM_SESSIONID", "session-value")
+    monkeypatch.setenv("INSTAGRAM_CSRFTOKEN", "csrf-value")
+    monkeypatch.setenv("INSTAGRAM_DS_USER_ID", "1234")
+
+    settings = Settings.from_environment()
+
+    assert settings.story_session_configured is True
+    assert settings.instagram_username == "owner"
+    assert settings.instagram_sessionid == "session-value"
+    assert settings.instagram_csrftoken == "csrf-value"
+    assert settings.instagram_ds_user_id == "1234"
 
 
 def test_upload_limit_cannot_exceed_cloud_bot_api(monkeypatch: pytest.MonkeyPatch) -> None:
