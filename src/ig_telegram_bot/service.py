@@ -17,7 +17,8 @@ from .instagram import (
     InstagramDownloader,
     InstagramDownloadError,
     InvalidInstagramLink,
-    extract_shortcode,
+    StorySession,
+    parse_instagram_target,
 )
 from .rate_limit import SlidingWindowRateLimiter
 
@@ -28,20 +29,24 @@ CAPTION_SAFE_LIMIT = 1000
 
 START_TEXT = """سلام! 👋
 
-لینک یک پست، ریلز یا آلبوم عمومی Instagram را بفرستید تا عکس‌ها و ویدئوهای آن را برایتان ارسال کنم.
+لینک یک پست، ریلز، آلبوم یا استوری عمومی Instagram را بفرستید تا فایل آن را برایتان ارسال کنم.
 
-نمونه:
+نمونه پست/ریلز:
 https://www.instagram.com/reel/SHORTCODE/
 
-🔒 این ربات فقط محتوای عمومی را دریافت می‌کند و به حساب Instagram شما نیاز ندارد."""
+نمونه استوری:
+https://www.instagram.com/stories/username/123456789/
+
+🔒 فقط محتوای عمومی پشتیبانی می‌شود."""
 
 HELP_TEXT = """راهنما 📥
 
-۱) لینک کامل پست یا ریلز عمومی Instagram را کپی کنید.
+۱) لینک کامل پست، ریلز، آلبوم یا استوری عمومی Instagram را کپی کنید.
 ۲) لینک را در یک پیام برای ربات بفرستید.
 ۳) تا پایان دریافت و ارسال فایل صبر کنید.
 
-پست خصوصی، استوری و لینک صفحهٔ کاربری پشتیبانی نمی‌شود.
+استوری باید هنوز فعال باشد؛ استوری حذف‌شده یا منقضی قابل دریافت نیست.
+محتوای حساب خصوصی پشتیبانی نمی‌شود.
 فقط از محتوایی استفاده کنید که اجازهٔ ذخیره یا بازنشر آن را دارید."""
 
 
@@ -61,7 +66,13 @@ def build_caption(result: DownloadResult) -> str:
 class InstagramBotService:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._downloader = InstagramDownloader()
+        story_session = StorySession(
+            username=settings.instagram_username,
+            sessionid=settings.instagram_sessionid,
+            csrftoken=settings.instagram_csrftoken,
+            ds_user_id=settings.instagram_ds_user_id,
+        )
+        self._downloader = InstagramDownloader(story_session=story_session)
         self._download_slots = asyncio.Semaphore(settings.max_concurrent_downloads)
         self._rate_limiter = SlidingWindowRateLimiter(settings.max_requests_per_minute)
         self._active_users: set[int] = set()
@@ -82,8 +93,8 @@ class InstagramBotService:
         if update.effective_message:
             await update.effective_message.reply_text(
                 "🔐 ربات فقط لینک ارسالی را هنگام پردازش استفاده می‌کند. فایل‌ها در پوشهٔ موقت "
-                "قرار می‌گیرند و بلافاصله پس از ارسال حذف می‌شوند. توکن ربات را هرگز در کد یا "
-                "گفت‌وگو منتشر نکنید."
+                "قرار می‌گیرند و بلافاصله پس از ارسال حذف می‌شوند. برای استوری، سشن امن حساب "
+                "مدیر فقط روی سرور نگهداری می‌شود و اطلاعات ورود کاربران درخواست نمی‌شود."
             )
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -94,17 +105,20 @@ class InstagramBotService:
             return
 
         try:
-            shortcode = extract_shortcode(message.text)
+            target = parse_instagram_target(message.text)
         except InvalidInstagramLink:
             await message.reply_text(
-                "لطفاً لینک کامل یک پست یا ریلز عمومی Instagram را بفرستید.\n"
-                "مثال: https://www.instagram.com/p/SHORTCODE/"
+                "لطفاً لینک کامل پست، ریلز یا استوری عمومی Instagram را بفرستید.\n"
+                "پست: https://www.instagram.com/p/SHORTCODE/\n"
+                "استوری: https://www.instagram.com/stories/username/123456789/"
             )
             return
 
-        if not await self._rate_limiter.allow(user.id):
+        rate = await self._rate_limiter.check(user.id)
+        if not rate.allowed:
             await message.reply_text(
-                "⏳ تعداد درخواست‌های شما زیاد شده است؛ حدود یک دقیقه بعد دوباره امتحان کنید."
+                f"⏳ تعداد درخواست‌ها زیاد شده است؛ حدود {rate.retry_after_seconds} ثانیه "
+                "بعد دوباره امتحان کنید."
             )
             return
 
@@ -112,13 +126,14 @@ class InstagramBotService:
             await message.reply_text("یک دانلود دیگر برای شما در حال انجام است؛ کمی صبر کنید.")
             return
 
-        status = await message.reply_text("⏳ در حال دریافت از Instagram…")
+        item_name = "استوری" if target.is_story else "محتوا"
+        status = await message.reply_text(f"⏳ در حال دریافت {item_name} از Instagram…")
         try:
             async with self._download_slots:
                 with TemporaryDirectory(prefix="ig-bot-") as temporary_directory:
                     result = await asyncio.to_thread(
                         self._downloader.download,
-                        shortcode,
+                        target,
                         Path(temporary_directory),
                     )
                     await status.edit_text("📤 دریافت شد؛ در حال ارسال به Telegram…")
