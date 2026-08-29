@@ -18,7 +18,7 @@ def test_application_builds_without_network_call() -> None:
     application = build_application(settings)
 
     assert application.bot.token == settings.telegram_bot_token
-    assert len(application.handlers[0]) == 5
+    assert len(application.handlers[0]) == 6
 
 
 def test_webhook_security_is_stable_and_does_not_expose_token(monkeypatch) -> None:
