@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 import instaloader
 from instaloader.exceptions import (
@@ -26,6 +31,9 @@ _STORY_LINK = re.compile(
     flags=re.IGNORECASE,
 )
 _MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".mp4"}
+_SOCLIP_ENDPOINT = "https://api.soclip.dev/v1/media"
+_SOCLIP_RESPONSE_LIMIT = 1024 * 1024
+_SUPPORTED_SOCLIP_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "mp4"}
 
 
 class InvalidInstagramLink(ValueError):
@@ -106,10 +114,17 @@ def extract_shortcode(text: str) -> str:
 
 
 class InstagramDownloader:
-    """Download public Instagram posts/reels and public stories."""
+    """Download public Instagram posts/reels and active public stories."""
 
-    def __init__(self, story_session: StorySession | None = None) -> None:
+    def __init__(
+        self,
+        story_session: StorySession | None = None,
+        soclip_api_key: str = "",
+        max_download_bytes: int = 49 * 1024 * 1024,
+    ) -> None:
         self._story_session = story_session
+        self._soclip_api_key = soclip_api_key.strip()
+        self._max_download_bytes = max_download_bytes
 
     def download(
         self,
@@ -191,12 +206,159 @@ class InstagramDownloader:
         target: InstagramTarget,
         target_directory: Path,
     ) -> DownloadResult:
+        if self._soclip_api_key:
+            return self._download_story_hosted(target, target_directory)
+
+        session = self._story_session
+        if session is not None and session.configured:
+            return self._download_story_with_session(target, target_directory)
+
+        raise InstagramDownloadError(
+            "دانلود استوری هنوز فعال نشده است؛ مدیر ربات فقط باید SOCLIP_API_KEY را "
+            "در تنظیمات سرور وارد کند."
+        )
+
+    def _download_story_hosted(
+        self,
+        target: InstagramTarget,
+        target_directory: Path,
+    ) -> DownloadResult:
+        source_url = (
+            f"https://www.instagram.com/stories/{target.username}/{target.media_id}/"
+        )
+        request = Request(
+            _SOCLIP_ENDPOINT,
+            data=json.dumps({"url": source_url}).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self._soclip_api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "instagram-telegram-bot/4",
+            },
+            method="POST",
+        )
+
+        try:
+            with urlopen(request, timeout=35) as response:
+                raw = response.read(_SOCLIP_RESPONSE_LIMIT + 1)
+        except HTTPError as exc:
+            self._raise_soclip_http_error(exc)
+        except URLError as exc:
+            raise InstagramDownloadError(
+                "سرویس دریافت استوری موقتاً در دسترس نیست؛ کمی بعد دوباره امتحان کنید."
+            ) from exc
+
+        if len(raw) > _SOCLIP_RESPONSE_LIMIT:
+            raise InstagramDownloadError("پاسخ سرویس استوری نامعتبر بود.")
+
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise InstagramDownloadError("پاسخ سرویس استوری قابل پردازش نبود.") from exc
+
+        if not isinstance(payload, dict) or payload.get("success") is not True:
+            raise InstagramDownloadError(
+                "این استوری قابل دریافت نیست؛ ممکن است منقضی، حذف یا غیرعمومی باشد."
+            )
+
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise InstagramDownloadError("سرویس استوری فایل قابل استفاده‌ای برنگرداند.")
+
+        medias = data.get("medias")
+        if not isinstance(medias, list):
+            raise InstagramDownloadError("فایل استوری در پاسخ سرویس پیدا نشد.")
+
+        media = _select_soclip_media(medias)
+        media_url = str(media.get("url", "")).strip()
+        extension = _normalize_media_extension(str(media.get("ext", "")), media_url)
+        if not media_url or urlparse(media_url).scheme.lower() != "https":
+            raise InstagramDownloadError("آدرس فایل استوری نامعتبر بود.")
+
+        target_directory.mkdir(parents=True, exist_ok=True)
+        output_path = target_directory / f"story_{target.media_id}.{extension}"
+        self._download_remote_media(media_url, output_path)
+
+        return DownloadResult(
+            shortcode=str(target.media_id),
+            source_url=source_url,
+            owner_username=target.username,
+            caption="",
+            media_paths=(output_path,),
+        )
+
+    def _download_remote_media(self, media_url: str, output_path: Path) -> None:
+        request = Request(
+            media_url,
+            headers={"User-Agent": "Mozilla/5.0 instagram-telegram-bot/4"},
+        )
+        try:
+            with urlopen(request, timeout=45) as response:
+                final_url = response.geturl()
+                if urlparse(final_url).scheme.lower() != "https":
+                    raise InstagramDownloadError("آدرس نهایی فایل استوری امن نیست.")
+
+                content_length = response.headers.get("Content-Length")
+                if content_length:
+                    try:
+                        if int(content_length) > self._max_download_bytes:
+                            raise InstagramDownloadError(
+                                "حجم این استوری از سقف قابل ارسال Telegram بیشتر است."
+                            )
+                    except ValueError:
+                        pass
+
+                total = 0
+                with output_path.open("wb") as destination:
+                    while True:
+                        chunk = response.read(64 * 1024)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > self._max_download_bytes:
+                            raise InstagramDownloadError(
+                                "حجم این استوری از سقف قابل ارسال Telegram بیشتر است."
+                            )
+                        destination.write(chunk)
+        except InstagramDownloadError:
+            output_path.unlink(missing_ok=True)
+            raise
+        except (HTTPError, URLError, OSError) as exc:
+            output_path.unlink(missing_ok=True)
+            raise InstagramDownloadError(
+                "دریافت فایل استوری از CDN کامل نشد؛ دوباره امتحان کنید."
+            ) from exc
+
+    @staticmethod
+    def _raise_soclip_http_error(exc: HTTPError) -> None:
+        if exc.code in {401, 403}:
+            raise InstagramDownloadError(
+                "کلید سرویس Story نامعتبر است؛ مدیر ربات باید SOCLIP_API_KEY را بررسی کند."
+            ) from exc
+        if exc.code == 402:
+            raise InstagramDownloadError(
+                "اعتبار رایگان سرویس Story تمام شده است؛ مدیر ربات باید اعتبار حساب را بررسی کند."
+            ) from exc
+        if exc.code == 429:
+            raise InstagramDownloadError(
+                "سرویس Story موقتاً درخواست‌ها را محدود کرده است؛ کمی بعد دوباره امتحان کنید."
+            ) from exc
+        if exc.code in {400, 404, 410, 422}:
+            raise InstagramDownloadError(
+                "این استوری قابل دریافت نیست؛ ممکن است منقضی، حذف یا غیرعمومی باشد."
+            ) from exc
+        raise InstagramDownloadError(
+            "سرویس دریافت استوری با خطا روبه‌رو شد؛ کمی بعد دوباره امتحان کنید."
+        ) from exc
+
+    def _download_story_with_session(
+        self,
+        target: InstagramTarget,
+        target_directory: Path,
+    ) -> DownloadResult:
         session = self._story_session
         if session is None or not session.configured:
-            raise InstagramDownloadError(
-                "دانلود استوری روی سرور هنوز فعال نشده است؛ "
-                "سشن Instagram باید در تنظیمات امن سرور ثبت شود."
-            )
+            raise InstagramDownloadError("سشن Instagram برای Story تنظیم نشده است.")
 
         target_directory.mkdir(parents=True, exist_ok=True)
         loader = self._new_loader()
@@ -263,6 +425,53 @@ class InstagramDownloader:
             caption="",
             media_paths=media_paths,
         )
+
+
+def _select_soclip_media(medias: list[Any]) -> dict[str, Any]:
+    candidates: list[dict[str, Any]] = []
+    for item in medias:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url", "")).strip()
+        ext = _normalize_media_extension(str(item.get("ext", "")), url, strict=False)
+        if not url or ext not in _SUPPORTED_SOCLIP_EXTENSIONS:
+            continue
+        candidates.append(item)
+
+    if not candidates:
+        raise InstagramDownloadError("سرویس Story هیچ فایل قابل ارسال برنگرداند.")
+
+    def score(item: dict[str, Any]) -> tuple[int, int, int]:
+        ext = _normalize_media_extension(
+            str(item.get("ext", "")),
+            str(item.get("url", "")),
+            strict=False,
+        )
+        is_video = 1 if ext == "mp4" else 0
+        width = _safe_int(item.get("width"))
+        height = _safe_int(item.get("height"))
+        return (is_video, width * height, height)
+
+    return max(candidates, key=score)
+
+
+def _normalize_media_extension(ext: str, url: str, *, strict: bool = True) -> str:
+    normalized = ext.strip().lower().lstrip(".")
+    if not normalized:
+        suffix = Path(urlparse(url).path).suffix.lower().lstrip(".")
+        normalized = suffix
+    if normalized == "jpeg":
+        normalized = "jpg"
+    if strict and normalized not in _SUPPORTED_SOCLIP_EXTENSIONS:
+        raise InstagramDownloadError("قالب فایل Story پشتیبانی نمی‌شود.")
+    return normalized
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _collect_media_paths(target_directory: Path) -> tuple[Path, ...]:
