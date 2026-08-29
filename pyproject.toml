@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "instagram-telegram-bot"
+version = "1.0.0"
+description = "A Persian Telegram bot for downloading public Instagram posts and reels"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "instaloader==4.15.3",
+  "python-dotenv==1.1.1",
+  "python-telegram-bot[socks]==22.8",
+]
+
+[project.scripts]
+instagram-telegram-bot = "ig_telegram_bot.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
