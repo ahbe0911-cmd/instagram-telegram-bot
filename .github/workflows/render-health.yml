@@ -1,0 +1,28 @@
+name: Render Health Check
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  check-render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Render service reachability
+        shell: bash
+        run: |
+          set -u
+          URL="https://instagram-telegram-bot.onrender.com/"
+          echo "Checking $URL"
+          code="$(curl -sS -L -o /tmp/render_body.txt -w '%{http_code}' --connect-timeout 20 --max-time 90 "$URL" || true)"
+          echo "HTTP_STATUS=$code"
+          echo "--- response preview ---"
+          head -c 500 /tmp/render_body.txt 2>/dev/null || true
+          echo
+          if [[ "$code" =~ ^[1-4][0-9][0-9]$ ]]; then
+            echo "Render service is reachable."
+            exit 0
+          fi
+          echo "Render service is not reachable at the expected public URL yet."
+          exit 1
