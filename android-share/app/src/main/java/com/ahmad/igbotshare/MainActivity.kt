@@ -5,19 +5,15 @@ import android.content.Intent
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
-import android.text.InputType
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
 import android.widget.Toast
 
 class MainActivity : Activity() {
-    private val prefs by lazy { getSharedPreferences("share_to_bot", MODE_PRIVATE) }
-    private var pendingSharedText: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,103 +27,71 @@ class MainActivity : Activity() {
     }
 
     private fun handleIntent(sourceIntent: Intent) {
-        val sharedText = if (sourceIntent.action == Intent.ACTION_SEND) {
-            sourceIntent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
-        } else {
-            ""
+        if (sourceIntent.action == Intent.ACTION_SEND) {
+            val sharedText = sourceIntent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
+            val instagramUrl = extractInstagramUrl(sharedText)
+            val textToSend = instagramUrl.ifBlank { sharedText }
+
+            if (textToSend.isNotBlank()) {
+                openTelegramBot(textToSend)
+                finish()
+                return
+            }
         }
 
-        val extracted = extractInstagramUrl(sharedText)
-        pendingSharedText = extracted.ifBlank { sharedText }.ifBlank { null }
-
-        val savedBot = normalizeBotUsername(prefs.getString(KEY_BOT_USERNAME, "").orEmpty())
-        if (pendingSharedText != null && savedBot.isNotBlank()) {
-            openTelegramBot(savedBot, pendingSharedText!!)
-            finish()
-            return
-        }
-
-        showSetup(savedBot)
+        showHome()
     }
 
-    private fun showSetup(currentBot: String) {
+    private fun showHome() {
         val padding = dp(24)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(padding, dp(36), padding, padding)
+            setPadding(padding, dp(44), padding, padding)
             layoutDirection = android.view.View.LAYOUT_DIRECTION_RTL
         }
 
         val title = TextView(this).apply {
             text = "دانلود با ربات"
-            textSize = 26f
+            textSize = 28f
             setTypeface(typeface, Typeface.BOLD)
             gravity = Gravity.CENTER
         }
         root.addView(title, matchWrap())
 
+        val bot = TextView(this).apply {
+            text = "@$BOT_USERNAME"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, 0)
+        }
+        root.addView(bot, matchWrap())
+
         val description = TextView(this).apply {
-            text = "نام کاربری ربات تلگرام را فقط یک بار وارد کن. بعد از آن در Instagram روی Share بزن و «دانلود با ربات» را انتخاب کن؛ مستقیم همان چت باز می‌شود و لینک آماده ارسال است."
+            text = "در Instagram روی Share بزن و «دانلود با ربات» را انتخاب کن. لینک مستقیماً در همین ربات تلگرام آماده می‌شود."
             textSize = 16f
             gravity = Gravity.CENTER
-            setPadding(0, dp(20), 0, dp(22))
+            setPadding(0, dp(24), 0, dp(20))
         }
         root.addView(description, matchWrap())
 
-        val botInput = EditText(this).apply {
-            hint = "مثلاً MyInstagramDownloaderBot"
-            setText(currentBot)
-            textSize = 17f
-            singleLine = true
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            gravity = Gravity.CENTER
-        }
-        root.addView(botInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
-        val saveButton = Button(this).apply {
-            text = if (pendingSharedText != null) "ذخیره و باز کردن ربات" else "ذخیره"
+        val openButton = Button(this).apply {
+            text = "باز کردن ربات"
             textSize = 16f
-            setOnClickListener {
-                val username = normalizeBotUsername(botInput.text.toString())
-                if (!isValidTelegramUsername(username)) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "نام کاربری ربات معتبر نیست. @ را وارد نکن یا بگذار برنامه خودش حذف کند.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    return@setOnClickListener
-                }
-
-                prefs.edit().putString(KEY_BOT_USERNAME, username).apply()
-                Toast.makeText(this@MainActivity, "نام ربات ذخیره شد", Toast.LENGTH_SHORT).show()
-
-                pendingSharedText?.let { text ->
-                    openTelegramBot(username, text)
-                    finish()
-                }
-            }
+            setOnClickListener { openTelegramBot("") }
         }
-        val buttonParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(18)
-        }
-        root.addView(saveButton, buttonParams)
-
-        if (currentBot.isNotBlank()) {
-            val testButton = Button(this).apply {
-                text = "باز کردن ربات"
-                setOnClickListener { openTelegramBot(currentBot, "") }
-            }
-            val testParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(10)
-            }
-            root.addView(testButton, testParams)
-        }
+        root.addView(
+            openButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
 
         root.addView(Space(this), LinearLayout.LayoutParams(1, 0, 1f))
 
         val footer = TextView(this).apply {
-            text = "این برنامه هیچ توکن، رمز یا اطلاعات ورود تلگرام و اینستاگرام را ذخیره نمی‌کند."
+            text = "بدون نیاز به توکن، رمز یا تنظیم اولیه"
             textSize = 13f
             gravity = Gravity.CENTER
         }
@@ -136,17 +100,16 @@ class MainActivity : Activity() {
         setContentView(root)
     }
 
-    private fun openTelegramBot(botUsername: String, draftText: String) {
+    private fun openTelegramBot(draftText: String) {
         val tgUri = Uri.parse(
-            "tg://resolve?domain=${Uri.encode(botUsername)}&text=${Uri.encode(draftText)}"
+            "tg://resolve?domain=${Uri.encode(BOT_USERNAME)}&text=${Uri.encode(draftText)}"
         )
-        val telegramIntent = Intent(Intent.ACTION_VIEW, tgUri)
 
         try {
-            startActivity(telegramIntent)
+            startActivity(Intent(Intent.ACTION_VIEW, tgUri))
         } catch (_: Exception) {
             val webUri = Uri.parse(
-                "https://t.me/${Uri.encode(botUsername)}?text=${Uri.encode(draftText)}"
+                "https://t.me/${Uri.encode(BOT_USERNAME)}?text=${Uri.encode(draftText)}"
             )
             try {
                 startActivity(Intent(Intent.ACTION_VIEW, webUri))
@@ -161,11 +124,6 @@ class MainActivity : Activity() {
         return match.value.trimEnd('.', ',', ')', ']', '}', '،')
     }
 
-    private fun normalizeBotUsername(value: String): String = value.trim().removePrefix("@").trim()
-
-    private fun isValidTelegramUsername(value: String): Boolean =
-        value.length in 5..32 && value.matches(Regex("[A-Za-z0-9_]+"))
-
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun matchWrap() = LinearLayout.LayoutParams(
@@ -174,7 +132,7 @@ class MainActivity : Activity() {
     )
 
     companion object {
-        private const val KEY_BOT_USERNAME = "bot_username"
+        private const val BOT_USERNAME = "Ahbe0912_bot"
         private val INSTAGRAM_URL = Regex(
             "https?://(?:(?:www|m)\\.)?instagram\\.com/[^\\s]+",
             RegexOption.IGNORE_CASE
