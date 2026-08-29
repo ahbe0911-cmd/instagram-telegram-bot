@@ -19,12 +19,10 @@ def _read_int(name: str, default: int, minimum: int, maximum: int) -> int:
     return value
 
 
-def _read_required_positive_int(name: str) -> int:
+def _read_optional_positive_int(name: str) -> int | None:
     raw = os.getenv(name, "").strip()
     if not raw:
-        raise ConfigurationError(
-            f"متغیر {name} تنظیم نشده است؛ برای امنیت ربات بدون شناسه مالک اجرا نمی‌شود."
-        )
+        return None
     try:
         value = int(raw)
     except ValueError as exc:
@@ -84,7 +82,7 @@ class Settings:
             instagram_sessionid=os.getenv("INSTAGRAM_SESSIONID", "").strip(),
             instagram_csrftoken=os.getenv("INSTAGRAM_CSRFTOKEN", "").strip(),
             instagram_ds_user_id=os.getenv("INSTAGRAM_DS_USER_ID", "").strip(),
-            allowed_telegram_user_id=_read_required_positive_int(
+            allowed_telegram_user_id=_read_optional_positive_int(
                 "ALLOWED_TELEGRAM_USER_ID"
             ),
         )
