@@ -44,6 +44,15 @@ async def _status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
 
+async def _myid_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
+    if not update.effective_message or not update.effective_user:
+        return
+    await update.effective_message.reply_text(
+        f"🆔 Telegram User ID شما:\n{update.effective_user.id}"
+    )
+
+
 def _webhook_security(settings: Settings) -> tuple[str, str]:
     configured_secret = os.getenv("WEBHOOK_SECRET_TOKEN", "").strip()
     secret = configured_secret or hashlib.sha256(
@@ -61,6 +70,7 @@ async def _post_init(application: Application) -> None:
             BotCommand("help", "راهنمای استفاده"),
             BotCommand("status", "وضعیت ربات"),
             BotCommand("privacy", "حریم خصوصی"),
+            BotCommand("myid", "نمایش شناسه عددی تلگرام"),
         ]
     )
 
@@ -80,11 +90,32 @@ def build_application(settings: Settings) -> Application:
         .post_init(_post_init)
         .build()
     )
-    application.add_handler(CommandHandler("start", service.start))
-    application.add_handler(CommandHandler("help", service.help))
-    application.add_handler(CommandHandler("status", _status_handler))
-    application.add_handler(CommandHandler("privacy", service.privacy))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, service.handle_text))
+
+    owner_filter = (
+        filters.User(user_id=settings.allowed_telegram_user_id)
+        if settings.allowed_telegram_user_id is not None
+        else None
+    )
+
+    if owner_filter is None:
+        application.add_handler(CommandHandler("start", service.start))
+        application.add_handler(CommandHandler("help", service.help))
+        application.add_handler(CommandHandler("status", _status_handler))
+        application.add_handler(CommandHandler("privacy", service.privacy))
+        application.add_handler(CommandHandler("myid", _myid_handler))
+        application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, service.handle_text)
+        )
+    else:
+        application.add_handler(CommandHandler("start", service.start, filters=owner_filter))
+        application.add_handler(CommandHandler("help", service.help, filters=owner_filter))
+        application.add_handler(CommandHandler("status", _status_handler, filters=owner_filter))
+        application.add_handler(CommandHandler("privacy", service.privacy, filters=owner_filter))
+        application.add_handler(CommandHandler("myid", _myid_handler, filters=owner_filter))
+        application.add_handler(
+            MessageHandler(owner_filter & filters.TEXT & ~filters.COMMAND, service.handle_text)
+        )
+
     return application
 
 
@@ -100,6 +131,11 @@ def main() -> None:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    if settings.allowed_telegram_user_id is None:
+        logging.getLogger(__name__).warning(
+            "ALLOWED_TELEGRAM_USER_ID is not configured; bot is not private yet."
+        )
 
     application = build_application(settings)
 
