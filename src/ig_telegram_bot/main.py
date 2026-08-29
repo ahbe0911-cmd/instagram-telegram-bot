@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 import os
 import time
+from functools import wraps
 
 from dotenv import load_dotenv
 from telegram import BotCommand, Update
@@ -20,6 +22,11 @@ from .advanced_service import AdvancedInstagramBotService
 from .config import ConfigurationError, Settings
 
 _STARTED_AT = time.monotonic()
+_OWNER_ID_SALT = bytes.fromhex("e8c2a3028338758200de9190de190d9a")
+_OWNER_ID_FINGERPRINT = bytes.fromhex(
+    "fc6f7ad0ba724c57913039e5850fc4a13d4ff6d2afa63240481faddc20310c3d"
+)
+_OWNER_ID_PBKDF2_ROUNDS = 120_000
 
 
 def _format_uptime(seconds: int) -> str:
@@ -30,6 +37,31 @@ def _format_uptime(seconds: int) -> str:
     if minutes:
         return f"{minutes} دقیقه و {secs} ثانیه"
     return f"{secs} ثانیه"
+
+
+def _matches_private_owner(user_id: int) -> bool:
+    candidate = hashlib.pbkdf2_hmac(
+        "sha256",
+        str(user_id).encode("ascii"),
+        _OWNER_ID_SALT,
+        _OWNER_ID_PBKDF2_ROUNDS,
+    )
+    return hmac.compare_digest(candidate, _OWNER_ID_FINGERPRINT)
+
+
+def _is_private_owner(update: Update) -> bool:
+    user = update.effective_user
+    return bool(user and _matches_private_owner(user.id))
+
+
+def _owner_only(callback):
+    @wraps(callback)
+    async def guarded(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not _is_private_owner(update):
+            return None
+        return await callback(update, context)
+
+    return guarded
 
 
 async def _status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -77,11 +109,6 @@ async def _post_init(application: Application) -> None:
 
 
 def build_application(settings: Settings) -> Application:
-    if settings.allowed_telegram_user_id is None:
-        raise ConfigurationError(
-            "ALLOWED_TELEGRAM_USER_ID تنظیم نشده است؛ ربات برای جلوگیری از دسترسی عمومی اجرا نمی‌شود."
-        )
-
     service = AdvancedInstagramBotService(settings)
     application = (
         ApplicationBuilder()
@@ -97,15 +124,16 @@ def build_application(settings: Settings) -> Application:
         .build()
     )
 
-    owner_filter = filters.User(user_id=settings.allowed_telegram_user_id)
-
-    application.add_handler(CommandHandler("start", service.start, filters=owner_filter))
-    application.add_handler(CommandHandler("help", service.help, filters=owner_filter))
-    application.add_handler(CommandHandler("status", _status_handler, filters=owner_filter))
-    application.add_handler(CommandHandler("privacy", service.privacy, filters=owner_filter))
-    application.add_handler(CommandHandler("myid", _myid_handler, filters=owner_filter))
+    application.add_handler(CommandHandler("start", _owner_only(service.start)))
+    application.add_handler(CommandHandler("help", _owner_only(service.help)))
+    application.add_handler(CommandHandler("status", _owner_only(_status_handler)))
+    application.add_handler(CommandHandler("privacy", _owner_only(service.privacy)))
+    application.add_handler(CommandHandler("myid", _owner_only(_myid_handler)))
     application.add_handler(
-        MessageHandler(owner_filter & filters.TEXT & ~filters.COMMAND, service.handle_text)
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            _owner_only(service.handle_text),
+        )
     )
 
     return application
