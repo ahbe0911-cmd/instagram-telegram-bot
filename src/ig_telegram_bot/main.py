@@ -40,6 +40,7 @@ async def _status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await update.effective_message.reply_text(
         "🟢 وضعیت ربات: آنلاین\n"
         f"⏱ زمان فعالیت: {_format_uptime(uptime)}\n"
+        "🔒 حالت خصوصی: فعال\n"
         "⚡ سرویس آماده دریافت لینک Instagram است."
     )
 
@@ -76,6 +77,11 @@ async def _post_init(application: Application) -> None:
 
 
 def build_application(settings: Settings) -> Application:
+    if settings.allowed_telegram_user_id is None:
+        raise ConfigurationError(
+            "ALLOWED_TELEGRAM_USER_ID تنظیم نشده است؛ ربات برای جلوگیری از دسترسی عمومی اجرا نمی‌شود."
+        )
+
     service = AdvancedInstagramBotService(settings)
     application = (
         ApplicationBuilder()
@@ -91,30 +97,16 @@ def build_application(settings: Settings) -> Application:
         .build()
     )
 
-    owner_filter = (
-        filters.User(user_id=settings.allowed_telegram_user_id)
-        if settings.allowed_telegram_user_id is not None
-        else None
-    )
+    owner_filter = filters.User(user_id=settings.allowed_telegram_user_id)
 
-    if owner_filter is None:
-        application.add_handler(CommandHandler("start", service.start))
-        application.add_handler(CommandHandler("help", service.help))
-        application.add_handler(CommandHandler("status", _status_handler))
-        application.add_handler(CommandHandler("privacy", service.privacy))
-        application.add_handler(CommandHandler("myid", _myid_handler))
-        application.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, service.handle_text)
-        )
-    else:
-        application.add_handler(CommandHandler("start", service.start, filters=owner_filter))
-        application.add_handler(CommandHandler("help", service.help, filters=owner_filter))
-        application.add_handler(CommandHandler("status", _status_handler, filters=owner_filter))
-        application.add_handler(CommandHandler("privacy", service.privacy, filters=owner_filter))
-        application.add_handler(CommandHandler("myid", _myid_handler, filters=owner_filter))
-        application.add_handler(
-            MessageHandler(owner_filter & filters.TEXT & ~filters.COMMAND, service.handle_text)
-        )
+    application.add_handler(CommandHandler("start", service.start, filters=owner_filter))
+    application.add_handler(CommandHandler("help", service.help, filters=owner_filter))
+    application.add_handler(CommandHandler("status", _status_handler, filters=owner_filter))
+    application.add_handler(CommandHandler("privacy", service.privacy, filters=owner_filter))
+    application.add_handler(CommandHandler("myid", _myid_handler, filters=owner_filter))
+    application.add_handler(
+        MessageHandler(owner_filter & filters.TEXT & ~filters.COMMAND, service.handle_text)
+    )
 
     return application
 
@@ -123,6 +115,7 @@ def main() -> None:
     load_dotenv()
     try:
         settings = Settings.from_environment()
+        application = build_application(settings)
     except ConfigurationError as exc:
         raise SystemExit(f"خطای تنظیمات: {exc}") from exc
 
@@ -131,13 +124,6 @@ def main() -> None:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
-
-    if settings.allowed_telegram_user_id is None:
-        logging.getLogger(__name__).warning(
-            "ALLOWED_TELEGRAM_USER_ID is not configured; bot is not private yet."
-        )
-
-    application = build_application(settings)
 
     external_url = (
         os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
