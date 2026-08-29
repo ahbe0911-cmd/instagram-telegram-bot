@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MAX_CONCURRENT_DOWNLOADS: ${MAX_CONCURRENT_DOWNLOADS:-2}
+      MAX_REQUESTS_PER_MINUTE: ${MAX_REQUESTS_PER_MINUTE:-4}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-49}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
