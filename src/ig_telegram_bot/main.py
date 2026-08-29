@@ -7,7 +7,14 @@ import time
 
 from dotenv import load_dotenv
 from telegram import BotCommand, Update
-from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from .advanced_service import AdvancedInstagramBotService
 from .config import ConfigurationError, Settings
