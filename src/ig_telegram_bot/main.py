@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 from telegram import BotCommand, Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
+from .advanced_service import AdvancedInstagramBotService
 from .config import ConfigurationError, Settings
-from .service import InstagramBotService
 
 _STARTED_AT = time.monotonic()
 
@@ -59,7 +59,7 @@ async def _post_init(application: Application) -> None:
 
 
 def build_application(settings: Settings) -> Application:
-    service = InstagramBotService(settings)
+    service = AdvancedInstagramBotService(settings)
     application = (
         ApplicationBuilder()
         .token(settings.telegram_bot_token)
