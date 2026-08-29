@@ -72,7 +72,11 @@ class InstagramBotService:
             csrftoken=settings.instagram_csrftoken,
             ds_user_id=settings.instagram_ds_user_id,
         )
-        self._downloader = InstagramDownloader(story_session=story_session)
+        self._downloader = InstagramDownloader(
+            story_session=story_session,
+            soclip_api_key=settings.soclip_api_key,
+            max_download_bytes=settings.max_upload_mb * 1024 * 1024,
+        )
         self._download_slots = asyncio.Semaphore(settings.max_concurrent_downloads)
         self._rate_limiter = SlidingWindowRateLimiter(settings.max_requests_per_minute)
         self._active_users: set[int] = set()
@@ -93,8 +97,9 @@ class InstagramBotService:
         if update.effective_message:
             await update.effective_message.reply_text(
                 "🔐 ربات فقط لینک ارسالی را هنگام پردازش استفاده می‌کند. فایل‌ها در پوشهٔ موقت "
-                "قرار می‌گیرند و بلافاصله پس از ارسال حذف می‌شوند. برای استوری، سشن امن حساب "
-                "مدیر فقط روی سرور نگهداری می‌شود و اطلاعات ورود کاربران درخواست نمی‌شود."
+                "قرار می‌گیرند و بلافاصله پس از ارسال حذف می‌شوند. برای Story عمومی، لینک Story "
+                "ممکن است برای استخراج فایل به سرویس پردازش رسانهٔ تنظیم‌شده روی سرور ارسال شود؛ "
+                "اطلاعات ورود Instagram از کاربران دریافت نمی‌شود."
             )
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
