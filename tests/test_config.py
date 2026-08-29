@@ -21,6 +21,7 @@ def test_settings_load_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "INSTAGRAM_SESSIONID",
         "INSTAGRAM_CSRFTOKEN",
         "INSTAGRAM_DS_USER_ID",
+        "ALLOWED_TELEGRAM_USER_ID",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -32,6 +33,23 @@ def test_settings_load_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.max_upload_mb == 49
     assert settings.story_api_configured is False
     assert settings.story_session_configured is False
+    assert settings.allowed_telegram_user_id is None
+
+
+def test_owner_user_id_is_optional(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("ALLOWED_TELEGRAM_USER_ID", "123456789")
+
+    settings = Settings.from_environment()
+
+    assert settings.allowed_telegram_user_id == 123456789
+
+
+def test_owner_user_id_must_be_positive_integer(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("ALLOWED_TELEGRAM_USER_ID", "not-a-number")
+    with pytest.raises(ConfigurationError):
+        Settings.from_environment()
 
 
 def test_story_api_key_is_optional(monkeypatch: pytest.MonkeyPatch) -> None:
