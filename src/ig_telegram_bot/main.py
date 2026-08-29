@@ -22,6 +22,7 @@ from .advanced_service import AdvancedInstagramBotService
 from .config import ConfigurationError, Settings
 
 _STARTED_AT = time.monotonic()
+_PRIVATE_GUARD_VERSION = "PVT-0830-A"
 _OWNER_ID_SALT = bytes.fromhex("e8c2a3028338758200de9190de190d9a")
 _OWNER_ID_FINGERPRINT = bytes.fromhex(
     "fc6f7ad0ba724c57913039e5850fc4a13d4ff6d2afa63240481faddc20310c3d"
@@ -73,6 +74,7 @@ async def _status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "🟢 وضعیت ربات: آنلاین\n"
         f"⏱ زمان فعالیت: {_format_uptime(uptime)}\n"
         "🔒 حالت خصوصی: فعال\n"
+        f"🛡 نسخه امنیتی: {_PRIVATE_GUARD_VERSION}\n"
         "⚡ سرویس آماده دریافت لینک Instagram است."
     )
 
@@ -152,6 +154,7 @@ def main() -> None:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger(__name__).info("Private guard version %s active", _PRIVATE_GUARD_VERSION)
 
     external_url = (
         os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
