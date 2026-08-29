@@ -26,6 +26,18 @@ class Settings:
     max_requests_per_minute: int
     max_upload_mb: int
     log_level: str
+    instagram_username: str = ""
+    instagram_sessionid: str = ""
+    instagram_csrftoken: str = ""
+    instagram_ds_user_id: str = ""
+
+    @property
+    def story_session_configured(self) -> bool:
+        return bool(
+            self.instagram_username
+            and self.instagram_sessionid
+            and self.instagram_csrftoken
+        )
 
     @classmethod
     def from_environment(cls) -> Settings:
@@ -46,4 +58,8 @@ class Settings:
             max_requests_per_minute=_read_int("MAX_REQUESTS_PER_MINUTE", 4, 1, 30),
             max_upload_mb=_read_int("MAX_UPLOAD_MB", 49, 1, 49),
             log_level=log_level,
+            instagram_username=os.getenv("INSTAGRAM_USERNAME", "").strip(),
+            instagram_sessionid=os.getenv("INSTAGRAM_SESSIONID", "").strip(),
+            instagram_csrftoken=os.getenv("INSTAGRAM_CSRFTOKEN", "").strip(),
+            instagram_ds_user_id=os.getenv("INSTAGRAM_DS_USER_ID", "").strip(),
         )
