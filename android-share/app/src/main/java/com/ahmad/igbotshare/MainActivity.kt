@@ -68,7 +68,7 @@ class MainActivity : Activity() {
         root.addView(bot, matchWrap())
 
         val description = TextView(this).apply {
-            text = "در Instagram روی Share بزن و «دانلود با ربات» را انتخاب کن. لینک مستقیماً در همین ربات تلگرام آماده می‌شود."
+            text = "در Instagram روی Share بزن و «دانلود با ربات» را انتخاب کن. لینک مستقیماً در Telegram رسمی آماده می‌شود."
             textSize = 16f
             gravity = Gravity.CENTER
             setPadding(0, dp(24), 0, dp(20))
@@ -76,7 +76,7 @@ class MainActivity : Activity() {
         root.addView(description, matchWrap())
 
         val openButton = Button(this).apply {
-            text = "باز کردن ربات"
+            text = "باز کردن ربات در تلگرام"
             textSize = 16f
             setOnClickListener { openTelegramBot("") }
         }
@@ -91,7 +91,7 @@ class MainActivity : Activity() {
         root.addView(Space(this), LinearLayout.LayoutParams(1, 0, 1f))
 
         val footer = TextView(this).apply {
-            text = "بدون نیاز به توکن، رمز یا تنظیم اولیه"
+            text = "اولویت باز شدن با Telegram رسمی است"
             textSize = 13f
             gravity = Gravity.CENTER
         }
@@ -105,17 +105,37 @@ class MainActivity : Activity() {
             "tg://resolve?domain=${Uri.encode(BOT_USERNAME)}&text=${Uri.encode(draftText)}"
         )
 
+        // Force the official Telegram clients first so third-party clients such as
+        // Telegraph Plus cannot hijack the tg:// deep link when Telegram is installed.
+        for (packageName in OFFICIAL_TELEGRAM_PACKAGES) {
+            try {
+                startActivity(
+                    Intent(Intent.ACTION_VIEW, tgUri).apply {
+                        setPackage(packageName)
+                    }
+                )
+                return
+            } catch (_: Exception) {
+                // Try the next official package variant.
+            }
+        }
+
+        // If no official Telegram package is installed, allow Android to choose a
+        // compatible app. This keeps the share target usable on unusual setups.
         try {
             startActivity(Intent(Intent.ACTION_VIEW, tgUri))
+            return
         } catch (_: Exception) {
-            val webUri = Uri.parse(
-                "https://t.me/${Uri.encode(BOT_USERNAME)}?text=${Uri.encode(draftText)}"
-            )
-            try {
-                startActivity(Intent(Intent.ACTION_VIEW, webUri))
-            } catch (_: Exception) {
-                Toast.makeText(this, "Telegram روی گوشی پیدا نشد.", Toast.LENGTH_LONG).show()
-            }
+            // Fall through to the web link.
+        }
+
+        val webUri = Uri.parse(
+            "https://t.me/${Uri.encode(BOT_USERNAME)}?text=${Uri.encode(draftText)}"
+        )
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, webUri))
+        } catch (_: Exception) {
+            Toast.makeText(this, "Telegram رسمی روی گوشی پیدا نشد.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -133,6 +153,10 @@ class MainActivity : Activity() {
 
     companion object {
         private const val BOT_USERNAME = "Ahbe0912_bot"
+        private val OFFICIAL_TELEGRAM_PACKAGES = arrayOf(
+            "org.telegram.messenger",
+            "org.telegram.messenger.web"
+        )
         private val INSTAGRAM_URL = Regex(
             "https?://(?:(?:www|m)\\.)?instagram\\.com/[^\\s]+",
             RegexOption.IGNORE_CASE
