@@ -19,6 +19,19 @@ def _read_int(name: str, default: int, minimum: int, maximum: int) -> int:
     return value
 
 
+def _read_optional_positive_int(name: str) -> int | None:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ConfigurationError(f"{name} باید یک عدد صحیح باشد.") from exc
+    if value <= 0:
+        raise ConfigurationError(f"{name} باید بزرگ‌تر از صفر باشد.")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     telegram_bot_token: str
@@ -31,6 +44,7 @@ class Settings:
     instagram_sessionid: str = ""
     instagram_csrftoken: str = ""
     instagram_ds_user_id: str = ""
+    allowed_telegram_user_id: int | None = None
 
     @property
     def story_api_configured(self) -> bool:
@@ -68,4 +82,5 @@ class Settings:
             instagram_sessionid=os.getenv("INSTAGRAM_SESSIONID", "").strip(),
             instagram_csrftoken=os.getenv("INSTAGRAM_CSRFTOKEN", "").strip(),
             instagram_ds_user_id=os.getenv("INSTAGRAM_DS_USER_ID", "").strip(),
+            allowed_telegram_user_id=_read_optional_positive_int("ALLOWED_TELEGRAM_USER_ID"),
         )
