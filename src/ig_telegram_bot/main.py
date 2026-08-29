@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from dotenv import load_dotenv
 from telegram import BotCommand, Update
@@ -56,10 +57,28 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     application = build_application(settings)
-    application.run_polling(
-        allowed_updates=[Update.MESSAGE],
-        drop_pending_updates=False,
+
+    external_url = (
+        os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+        or os.getenv("WEBHOOK_BASE_URL", "").strip().rstrip("/")
     )
+
+    if external_url:
+        port = int(os.getenv("PORT", "10000"))
+        webhook_path = os.getenv("WEBHOOK_PATH", "telegram").strip("/") or "telegram"
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path=webhook_path,
+            webhook_url=f"{external_url}/{webhook_path}",
+            allowed_updates=[Update.MESSAGE],
+            drop_pending_updates=False,
+        )
+    else:
+        application.run_polling(
+            allowed_updates=[Update.MESSAGE],
+            drop_pending_updates=False,
+        )
 
 
 if __name__ == "__main__":
