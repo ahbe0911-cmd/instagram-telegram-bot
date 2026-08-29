@@ -4,10 +4,11 @@ from ig_telegram_bot.rate_limit import SlidingWindowRateLimiter
 
 
 def test_rate_limiter_reports_retry_after() -> None:
-    limiter = SlidingWindowRateLimiter(1)
+    async def scenario():
+        limiter = SlidingWindowRateLimiter(1)
+        return await limiter.check(42), await limiter.check(42)
 
-    first = asyncio.run(limiter.check(42))
-    second = asyncio.run(limiter.check(42))
+    first, second = asyncio.run(scenario())
 
     assert first.allowed is True
     assert first.retry_after_seconds == 0
@@ -16,7 +17,11 @@ def test_rate_limiter_reports_retry_after() -> None:
 
 
 def test_boolean_api_remains_compatible() -> None:
-    limiter = SlidingWindowRateLimiter(1)
+    async def scenario():
+        limiter = SlidingWindowRateLimiter(1)
+        return await limiter.allow(7), await limiter.allow(7)
 
-    assert asyncio.run(limiter.allow(7)) is True
-    assert asyncio.run(limiter.allow(7)) is False
+    first, second = asyncio.run(scenario())
+
+    assert first is True
+    assert second is False
