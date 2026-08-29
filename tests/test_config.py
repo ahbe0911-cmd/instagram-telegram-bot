@@ -16,6 +16,7 @@ def test_settings_load_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "MAX_REQUESTS_PER_MINUTE",
         "MAX_UPLOAD_MB",
         "LOG_LEVEL",
+        "SOCLIP_API_KEY",
         "INSTAGRAM_USERNAME",
         "INSTAGRAM_SESSIONID",
         "INSTAGRAM_CSRFTOKEN",
@@ -29,7 +30,18 @@ def test_settings_load_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.max_concurrent_downloads == 2
     assert settings.max_requests_per_minute == 4
     assert settings.max_upload_mb == 49
+    assert settings.story_api_configured is False
     assert settings.story_session_configured is False
+
+
+def test_story_api_key_is_optional(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("SOCLIP_API_KEY", "sc_live_test")
+
+    settings = Settings.from_environment()
+
+    assert settings.story_api_configured is True
+    assert settings.soclip_api_key == "sc_live_test"
 
 
 def test_story_session_settings_are_optional(monkeypatch: pytest.MonkeyPatch) -> None:

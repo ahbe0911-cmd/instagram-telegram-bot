@@ -26,10 +26,15 @@ class Settings:
     max_requests_per_minute: int
     max_upload_mb: int
     log_level: str
+    soclip_api_key: str = ""
     instagram_username: str = ""
     instagram_sessionid: str = ""
     instagram_csrftoken: str = ""
     instagram_ds_user_id: str = ""
+
+    @property
+    def story_api_configured(self) -> bool:
+        return bool(self.soclip_api_key)
 
     @property
     def story_session_configured(self) -> bool:
@@ -58,6 +63,7 @@ class Settings:
             max_requests_per_minute=_read_int("MAX_REQUESTS_PER_MINUTE", 4, 1, 30),
             max_upload_mb=_read_int("MAX_UPLOAD_MB", 49, 1, 49),
             log_level=log_level,
+            soclip_api_key=os.getenv("SOCLIP_API_KEY", "").strip(),
             instagram_username=os.getenv("INSTAGRAM_USERNAME", "").strip(),
             instagram_sessionid=os.getenv("INSTAGRAM_SESSIONID", "").strip(),
             instagram_csrftoken=os.getenv("INSTAGRAM_CSRFTOKEN", "").strip(),
